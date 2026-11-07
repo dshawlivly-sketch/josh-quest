@@ -30,7 +30,7 @@ const crad = s => `³<span class="sym">√</span>${s}`;     // cube root
 
 /* --------------------------------------------------------------------- save */
 const SAVE_KEY = 'josh-quest-v1';
-const save = { stars: [], best: [], sound: 'all', crt: true };
+const save = { stars: [], best: [], sound: 'all', crt: true, at: null, run: null };
 try { Object.assign(save, JSON.parse(localStorage.getItem(SAVE_KEY) || '{}')); } catch (e) { /* private mode */ }
 const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { /* ignore */ } };
 const unlocked = i => i === 0 || (save.stars[i - 1] || 0) > 0;
@@ -654,11 +654,12 @@ scenes.title = (() => {
   function showMenu() {
     started = true; $('#title-press').style.display = 'none';
     m = menu($('#title-menu'), [
-      { label: 'START ADVENTURE', run: () => go('map') },
+      ...(save.run ? [{ label: 'CONTINUE LEVEL ' + (save.run.i + 1), cls: 'gold', run: () => go('battle', { i: save.run.i, resume: true }) }] : []),
+      { label: save.run ? 'WORLD MAP' : 'START ADVENTURE', run: () => go('map') },
       { label: 'PLAYBOOK (STUDY)', run: () => go('book') },
-      { label: 'ERASE SAVE', run: () => { if (confirm('Erase all stars and progress?')) { save.stars = []; save.best = []; persist(); showMenu(); } }, off: () => !hasProgress() },
+      { label: 'ERASE SAVE', run: () => { if (confirm('Erase all stars and progress?')) { save.stars = []; save.best = []; save.run = null; save.at = null; persist(); showMenu(); } }, off: () => !hasProgress() },
     ]);
-    if (!hasProgress()) m.btns[2].style.display = 'none';
+    if (!hasProgress()) m.btns[m.btns.length - 1].style.display = 'none';
   }
   return {
     el: root,
@@ -676,7 +677,7 @@ scenes.title = (() => {
 
 /* ================================================================ MAP SCENE */
 scenes.map = (() => {
-  const root = $('#sc-map'), nodesEl = $('#map-nodes'), actEl = $('#map-actors'), info = $('#map-info'); let josh, sel = 0, at = 0, busy = false, nodeEls = [];
+  const root = $('#sc-map'), nodesEl = $('#map-nodes'), actEl = $('#map-actors'), info = $('#map-info'); let josh, sel = 0, at = 0, busy = false, nodeEls = [], inited = false;
   const FEET = i => [STAGES[i].pos[0], STAGES[i].pos[1] + 5];
   function paintNodes() {
     nodeEls.forEach((n, i) => {
@@ -706,7 +707,7 @@ scenes.map = (() => {
       const nxt = at + dir, [x0, y0] = [josh.x, josh.y], [x1, y1] = FEET(nxt); josh.setFlip(x1 < x0);
       const dist = Math.hypot(x1 - x0, y1 - y0); await tween(dist * 5.5, k => josh.pos(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k)); at = nxt; Sound.play('move');
     }
-    josh.setFlip(false); josh.play('idle'); busy = false; info.style.visibility = ''; paintInfo();
+    josh.setFlip(false); josh.play('idle'); busy = false; info.style.visibility = ''; save.at = at; persist(); paintInfo();
   }
   function select(i) {
     i = clamp(i, 0, STAGES.length - 1); if (i === sel && !busy) return;
@@ -717,7 +718,9 @@ scenes.map = (() => {
   return {
     el: root,
     enter(arg) {
+      if (!inited) { inited = true; let s = save.at == null ? STAGES.length - 1 : clamp(save.at, 0, STAGES.length - 1); while (s > 0 && !unlocked(s)) s--; sel = at = s; }
       if (typeof arg === 'number') { sel = at = arg; }
+      save.at = at; persist();
       Sound.tempo(190);
       const bgc = $('#map-bg'); bgc.getContext('2d').drawImage(buildMap(STAGES), 0, 0);
       nodesEl.innerHTML = ''; actEl.innerHTML = ''; nodeEls = [];
@@ -734,7 +737,7 @@ scenes.map = (() => {
         else if (e.key.toLowerCase() === 'p') go('book'); else if (e.key === 'Escape') go('title');
       };
     },
-    leave() { josh && josh.destroy(); busy = false; },
+    leave() { josh && josh.destroy(); busy = false; info.style.visibility = ''; },
     select, get at() { return at; }, set at(v) { at = v; sel = v; },
   };
 })();
@@ -829,10 +832,14 @@ scenes.battle = (() => {
     if (miss) { Sound.play('hit'); await tween(380, k => { const x = toX - 30 - k * 260, y = toY + k * 60 - Math.sin(k * Math.PI) * 50; ball.style.transform = `translate(${x}px,${y}px) rotate(${-k * 720}deg)`; }); }
     ball.remove();
   }
-  async function run(i) {
+  async function run(i, resume) {
     const tok = ++B.tok; stage = STAGES[i]; si = i; B.dead = false; theme = stage.theme;
     Object.assign(B, { queue: buildQueue(stage), lives: 3, score: 0, streak: 0, aud: 2, mistakes: 0, firstTry: 0, asking: false });
     B.total = B.queue.length; B.seen = new Set();
+    const R = resume && save.run && save.run.i === i ? save.run : null;
+    if (R) { B.queue = R.specs.map(makeQ); Object.assign(B, { lives: R.lives, score: R.score, streak: R.streak || 0, aud: R.aud, mistakes: R.mistakes || 0, firstTry: R.firstTry || 0 }); B.total = R.total; }
+    const keep = () => { save.run = { i, specs: B.queue.map(q => q.spec), lives: B.lives, score: B.score, streak: B.streak, aud: B.aud, mistakes: B.mistakes, firstTry: B.firstTry, total: B.total }; persist(); };
+    save.at = i; keep();
     $('#bat-win .cmds').style.visibility = ''; layer.innerHTML = ''; $('#b-stage').textContent = stage.name; $('#b-ename').textContent = stage.enemy.name; hud();
     ansEl.innerHTML = ''; ansEl.style.display = 'none'; setText('', 'full'); $('#b-audible').onclick = () => B.audFn && B.audFn(); $('#b-quit').onclick = quit;
     josh = new Actor(layer, -70, JY, JS, 'run'); const shJ = el('div', 'shadow'); shJ.style.left = JX + 'px'; shJ.style.top = JY + 'px'; layer.insertBefore(shJ, josh.root);
@@ -840,8 +847,9 @@ scenes.battle = (() => {
       Sound.tempo(150);
       await A(tween(900, k => josh.pos(-70 + (JX + 70) * k, JY))); josh.play('idle');
       enemy = makeEnemy(stage.enemy); enemy.classList.add('spawn'); Sound.play('good'); await A(sleep(650)); enemy.classList.remove('spawn');
-      await sayJ(`A wild <y>${stage.enemy.name}</y> appears! Answer ${B.total} questions right to beat it. You have 3 lives. Ready?`);
+      await sayJ(R ? `Welcome back! Let's finish this drive. <y>${B.queue.length}</y> questions to go and <y>${B.lives}</y> ${B.lives === 1 ? 'life' : 'lives'} left. Ready?` : `A wild <y>${stage.enemy.name}</y> appears! Answer ${B.total} questions right to beat it. You have 3 lives. Ready?`);
       while (B.queue.length && B.lives > 0) {
+        keep();
         const q = B.queue[0]; const firstTime = !B.seen.has(q.spec.t + ':' + (q.spec.n || q.spec.v)); B.seen.add(q.spec.t + ':' + (q.spec.n || q.spec.v));
         face.classList.remove('talk');
         const { idx, btns } = await ask(q);
@@ -850,7 +858,7 @@ scenes.battle = (() => {
         enemy.classList.add('open');
         if (good) {
           await throwBall(enemy.cx, enemy.cy, false);
-          B.queue.shift(); B.streak++; if (firstTime) B.firstTry++;
+          B.queue.shift(); B.streak++; keep(); if (firstTime) B.firstTry++;
           const pts = 100 + Math.min(B.streak - 1, 5) * 20; B.score += pts; hud(); Sound.play('good'); flash('#fff');
           enemy.classList.remove('hit'); void enemy.offsetWidth; enemy.classList.add('hit'); setTimeout(() => enemy.classList.remove('hit'), 650); burst(enemy.cx, enemy.cy, 26, ['#fff', '#ffd23f', PAL[stage.enemy.pal].mid]);
           popup(`+${pts}`, enemy.cx - 24, enemy.cy - 60); if (B.streak >= 3) popup(`STREAK x${B.streak}!`, JX - 40, JY - 190, 'big');
@@ -865,6 +873,7 @@ scenes.battle = (() => {
           await A(tween(420, k => { enemy.style.transform = `translateX(${-Math.sin(k * Math.PI) * 230}px)`; })); enemy.style.transform = '';
           setTimeout(() => josh.root.classList.remove('hurt'), 700); enemy.classList.remove('open');
           B.queue.shift(); if (B.lives > 0) B.queue.push(makeQ(q.spec)); // re-ask a fresh version later
+          keep();
           ansEl.style.display = 'none'; setText('', 'full'); face.classList.add('talk');
           await sayJ(`<y>${B.lives > 0 ? pick(BAD) : 'That one got us sacked!'}</y><br><br>${q.exp}`, { speed: 16 });
           if (B.lives <= 0) break;
@@ -877,6 +886,7 @@ scenes.battle = (() => {
     ansEl.style.display = 'none'; face.classList.remove('talk'); B.asking = false; hud();
     enemy.classList.add('die'); Sound.play('win'); burst(enemy.cx, enemy.cy, 60, ['#fff', '#ffd23f', PAL[stage.enemy.pal].mid, PAL[stage.enemy.pal].hi], { spread: 300, up: 160 });
     await A(sleep(1000)); enemy.remove(); enemy.shadow.remove(); confettiRain(); josh.play('cele'); popup('STAGE CLEAR!', 220, 120, 'big');
+    save.run = null; persist();
     const st = B.lives; const newBest = st > (save.stars[si] || 0);
     const hadNext = si + 1 < STAGES.length && !unlocked(si + 1);
     save.stars[si] = Math.max(save.stars[si] || 0, st); save.best[si] = Math.max(save.best[si] || 0, B.score); persist();
@@ -886,7 +896,7 @@ scenes.battle = (() => {
     resultPanel({ title: finalStage ? 'CHAMPIONS!' : 'STAGE CLEAR!', msg, st, hadNext, win: true });
   }
   async function defeat() {
-    ansEl.style.display = 'none'; B.asking = false; hud(); Sound.play('lose'); shake();
+    save.run = null; persist(); ansEl.style.display = 'none'; B.asking = false; hud(); Sound.play('lose'); shake();
     josh.root.classList.remove('hurt'); josh.play('idle'); josh.spr.style.setProperty('--rot', '84deg'); josh.spr.style.filter = 'grayscale(.6)';
     popup('SACKED!', 250, 110, 'big bad');
     await A(sleep(1200));
@@ -906,7 +916,7 @@ scenes.battle = (() => {
   function quit() { if (B.dead) return; B.dead = true; B.tok++; abortWaiters(); go('map', si); }
   return {
     el: root, quit, B,
-    enter(i) { face.classList.remove('talk'); run(i); inputHandler = null; },
+    enter(arg) { face.classList.remove('talk'); const o = typeof arg === 'object' ? arg : { i: arg }; run(o.i, o.resume); inputHandler = null; },
     leave() { B.dead = true; B.tok++; abortWaiters(); layer.innerHTML = ''; josh = null; actors.forEach(a => { if (a.root.parentNode === null || layer.contains(a.root)) a.destroy(); }); Sound.tempo(190); },
     update(dt, t) { if ((t * 8 | 0) !== (this._b | 0)) { this._b = t * 8; drawBG(bg, theme, 160, 63, t); } },
   };

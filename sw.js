@@ -1,5 +1,5 @@
 /* Offline cache for Square & Cube Quest. Bump VERSION when files change. */
-const VERSION = 'sqcq-v1';
+const VERSION = 'sqcq-v2';
 const FILES = ['./', 'index.html', 'game.js', 'PressStart2P.ttf', 'manifest.webmanifest',
   'sprites/idle.png', 'sprites/run.png', 'sprites/throw.png', 'sprites/celebrate.png', 'sprites/ball.png', 'sprites/hero.png', 'sprites/face.png',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
