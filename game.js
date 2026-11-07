@@ -648,14 +648,22 @@ crtBtn.onclick = () => { save.crt = !save.crt; persist(); paintCrt(); };
 paintSnd(); paintCrt();
 
 /* ============================================================== TITLE SCENE */
+/* Level the CONTINUE button points at: the level in progress, otherwise the furthest unlocked level
+   (the next one to play, or the last one if everything is cleared). null for a brand-new player. */
+function resumeTarget() {
+  if (save.run) return { i: save.run.i, run: true };
+  if (!hasProgress()) return null;
+  let i = 0; STAGES.forEach((_, k) => { if (unlocked(k)) i = k; });
+  return { i, run: false };
+}
 scenes.title = (() => {
   const root = $('#sc-title'), bg = $('#title-bg').getContext('2d'); let m, runner, started = false, bgT = 0;
   const layer = $('#title-runner');
   function showMenu() {
     started = true; $('#title-press').style.display = 'none';
     m = menu($('#title-menu'), [
-      ...(save.run ? [{ label: 'CONTINUE LEVEL ' + (save.run.i + 1), cls: 'gold', run: () => go('battle', { i: save.run.i, resume: true }) }] : []),
-      { label: save.run ? 'WORLD MAP' : 'START ADVENTURE', run: () => go('map') },
+      ...(resumeTarget() ? [{ label: 'CONTINUE LEVEL ' + (resumeTarget().i + 1), cls: 'gold', run: () => { const t = resumeTarget(); t.run ? go('battle', { i: t.i, resume: true }) : go('map', t.i); } }] : []),
+      { label: resumeTarget() ? 'WORLD MAP' : 'START ADVENTURE', run: () => go('map') },
       { label: 'PLAYBOOK (STUDY)', run: () => go('book') },
       { label: 'ERASE SAVE', run: () => { if (confirm('Erase all stars and progress?')) { save.stars = []; save.best = []; save.run = null; save.at = null; persist(); showMenu(); } }, off: () => !hasProgress() },
     ]);
